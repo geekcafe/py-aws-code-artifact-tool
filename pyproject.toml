@@ -1,6 +1,6 @@
 [project]
 name = "py_aws_code_artifact_tool"
-version = "0.1.0"
+version = "0.1.1"
 description = "CLI tool for building and deploying Python projects to AWS CodeArtifact"
 authors = [{name="Eric Wilson", email="eric.wilson@geekcafe.com"}]
 requires-python = ">=3.8"
