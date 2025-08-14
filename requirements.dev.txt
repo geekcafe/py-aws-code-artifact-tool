@@ -1,0 +1,11 @@
+# dev and testing requirements
+pytest
+mypy
+types-python-dateutil
+build
+toml
+twine
+wheel
+pkginfo
+hatchling
+moto
