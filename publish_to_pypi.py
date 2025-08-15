@@ -140,9 +140,84 @@ password =
         input("Press Enter when you've edited the file...")
 
 
+def check_authentication(repository="pypi", config_file=None):
+    """Check if the user is authenticated with PyPI or TestPyPI."""
+    cmd = [sys.executable, "-m", "twine", "check", "--strict", "README.md"]
+    
+    env = os.environ.copy()
+    
+    # If using a config file, set TWINE_CONFIG_FILE
+    if config_file:
+        env["TWINE_CONFIG_FILE"] = config_file
+    
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, env=env)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def show_auth_instructions(repository="pypi", config_file=None):
+    """Show authentication instructions for PyPI or TestPyPI."""
+    print_header("Authentication Required")
+    
+    repo_name = "TestPyPI" if repository == "testpypi" else "PyPI"
+    repo_url = "https://test.pypi.org" if repository == "testpypi" else "https://pypi.org"
+    
+    print_error(f"You are not authenticated with {repo_name}.")
+    print_info("To authenticate, you need to:")
+    print("\n1. Create an API token:")
+    print(f"   - Go to {repo_url}/manage/account/")
+    print("   - Navigate to 'API tokens' and create a new token")
+    print("   - Select 'Entire account (all projects)' scope")
+    
+    if config_file:
+        print("\n2. Add your credentials to your local .pypirc file:")
+        print(f"   - Edit {config_file}")
+        print("   - Ensure it contains:")
+        if repository == "testpypi":
+            print("     [testpypi]")
+            print("     username = __token__")
+            print("     password = pypi-YOUR-TOKEN-HERE")
+        else:
+            print("     [pypi]")
+            print("     username = __token__")
+            print("     password = pypi-YOUR-TOKEN-HERE")
+    else:
+        print("\n2. Set up your credentials:")
+        print("   - Create a ~/.pypirc file with:")
+        print("     [distutils]")
+        print("     index-servers =")
+        print("         pypi")
+        print("         testpypi")
+        print("")
+        if repository == "testpypi":
+            print("     [testpypi]")
+            print("     repository = https://test.pypi.org/legacy/")
+            print("     username = __token__")
+            print("     password = pypi-YOUR-TOKEN-HERE")
+        else:
+            print("     [pypi]")
+            print("     username = __token__")
+            print("     password = pypi-YOUR-TOKEN-HERE")
+        
+        print("\n   - OR set environment variables:")
+        print("     export TWINE_USERNAME=__token__")
+        print("     export TWINE_PASSWORD=pypi-YOUR-TOKEN-HERE")
+    
+    print("\nReplace 'pypi-YOUR-TOKEN-HERE' with your actual token.")
+    print_info("\nFor more information, visit: https://twine.readthedocs.io/en/latest/#configuration")
+    
+    sys.exit(1)
+
+
 def upload_to_pypi(repository, config_file=None):
     """Upload the package to PyPI or TestPyPI."""
     print_header(f"Uploading to {'TestPyPI' if repository == 'testpypi' else 'PyPI'}")
+    
+    # Check authentication before attempting upload
+    if not check_authentication(repository, config_file):
+        show_auth_instructions(repository, config_file)
     
     cmd = [sys.executable, "-m", "twine", "upload"]
     
@@ -215,16 +290,13 @@ def main():
     
     # Check if user is authenticated (only if not using local .pypirc)
     if not pypirc_path:
-        try:
-            subprocess.run([sys.executable, "-m", "twine", "check", "--strict", "README.md"], 
-                          check=True, capture_output=True)
-        except subprocess.CalledProcessError:
-            print_warning("You might not be authenticated with PyPI.")
-            print_info("Please make sure you have a ~/.pypirc file or environment variables set.")
-            print_info("For more information, visit: https://twine.readthedocs.io/en/latest/#configuration")
+        if not check_authentication():
+            print_warning("You are not authenticated with PyPI.")
+            print_info("The upload will likely fail without proper authentication.")
             
             proceed = input("Do you want to proceed anyway? (y/n): ")
             if proceed.lower() != 'y':
+                show_auth_instructions()
                 sys.exit(0)
     
     # Prompt for repository
