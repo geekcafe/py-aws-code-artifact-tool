@@ -211,6 +211,73 @@ def show_auth_instructions(repository="pypi", config_file=None):
     sys.exit(1)
 
 
+def get_current_version():
+    """Get the current version from pyproject.toml."""
+    try:
+        import toml
+        with open("pyproject.toml", "r") as f:
+            data = toml.load(f)
+            return data.get("project", {}).get("version")
+    except (ImportError, FileNotFoundError, KeyError):
+        return None
+
+
+def show_version_conflict_help():
+    """Show help for version conflict errors."""
+    print_header("Version Conflict Error")
+    
+    current_version = get_current_version()
+    version_info = f"Current version: {current_version}" if current_version else ""
+    
+    print_error("The package version already exists on PyPI.")
+    print_info("To resolve this issue:")
+    print("\n1. Update the version number in pyproject.toml")
+    if version_info:
+        print(f"   {version_info} → increment to a new version")
+    print("\n2. Rebuild the package:")
+    print("   python -m build")
+    print("\n3. Run this publish script again")
+    
+    print_info("\nVersion numbering follows Semantic Versioning (SemVer):")
+    print("MAJOR.MINOR.PATCH (e.g., 1.2.3)")
+    print("- MAJOR: incompatible API changes")
+    print("- MINOR: add functionality (backwards compatible)")
+    print("- PATCH: bug fixes (backwards compatible)")
+    
+    sys.exit(1)
+
+
+def handle_upload_error(error_output):
+    """Handle common upload errors with helpful messages."""
+    # Check for version conflict
+    if "File already exists" in error_output:
+        show_version_conflict_help()
+    
+    # Check for invalid classifiers
+    elif "invalid classifier" in error_output.lower():
+        print_header("Invalid Classifier Error")
+        print_error("Your package has invalid classifiers in pyproject.toml.")
+        print_info("Please check your classifiers against the list at:")
+        print("https://pypi.org/classifiers/")
+        sys.exit(1)
+    
+    # Check for missing required metadata
+    elif "required metadata" in error_output.lower():
+        print_header("Missing Metadata Error")
+        print_error("Your package is missing required metadata.")
+        print_info("Check your pyproject.toml for required fields:")
+        print("- name\n- version\n- description\n- author\n- author_email")
+        sys.exit(1)
+    
+    # Generic error
+    else:
+        print_header("Upload Error")
+        print_error("Failed to upload package.")
+        print_info("Error details:")
+        print(error_output)
+        sys.exit(1)
+
+
 def upload_to_pypi(repository, config_file=None):
     """Upload the package to PyPI or TestPyPI."""
     print_header(f"Uploading to {'TestPyPI' if repository == 'testpypi' else 'PyPI'}")
@@ -233,10 +300,13 @@ def upload_to_pypi(repository, config_file=None):
     print_info(f"Running: {cmd_str}")
     
     try:
-        # Use shell=True to properly handle the glob pattern
-        subprocess.run(cmd_str, shell=True, check=True)
-        
+        # Use shell=True to properly handle the glob pattern but capture output for error analysis
+        result = subprocess.run(cmd_str, shell=True, check=True, capture_output=True, text=True)
         print_success("Package uploaded successfully!")
+    except subprocess.CalledProcessError as e:
+        # Handle the error with detailed feedback
+        error_output = e.stderr or e.stdout or "Unknown error occurred"
+        handle_upload_error(error_output)
         
         if repository == "testpypi":
             package_name = get_package_name()
