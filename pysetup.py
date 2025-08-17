@@ -37,7 +37,7 @@ def print_header(msg):
 
 
 class ProjectSetup:
-    CA_CONFIG = Path("setup.json")
+    CA_CONFIG = Path(".pysetup.json")
     
     # Authentication error patterns to detect in pip output
     AUTH_ERROR_PATTERNS = [
@@ -1179,10 +1179,10 @@ class ProjectSetup:
             moto
         """
 
-    def setup(self):
-        # Check for and fetch the latest setup.sh first
-        if self._check_and_fetch_setup_sh():
-            # If setup.sh was updated, exit and instruct the user to restart
+    def setup(self, force_update_sh=False, ci_mode=False):
+        # Check for and fetch the latest pysetup.sh first
+        if self._check_and_fetch_setup_sh(force_update=force_update_sh):
+            # If pysetup.sh was updated, exit and instruct the user to restart
             sys.exit(0)
             
         self._detect_platform()
@@ -1190,7 +1190,7 @@ class ProjectSetup:
         (self._setup_poetry if self._use_poetry else self._setup_pip)()
         self.print_env_info()
         
-        # Check if setup.json should be excluded from git
+        # Check if .pysetup.json should be excluded from git
         self._check_gitignore_setup()
         
         print("\n🎉 Setup complete!")
@@ -1521,13 +1521,13 @@ class ProjectSetup:
             raise subprocess.CalledProcessError(1, cmd)
 
     def _check_gitignore_setup(self):
-        """Check if setup.json should be added to .gitignore and prompt user if needed."""
+        """Check if .pysetup.json should be added to .gitignore and prompt user if needed."""
         # Check if user has already been prompted about gitignore
         if not self.ca_settings.get("setup_prompted", {}).get("gitignore", False):
             print_header("Git Configuration")
-            print("setup.json contains configuration that may be specific to your environment.")
+            print(".pysetup.json contains configuration that may be specific to your environment.")
             print("This can cause issues when working with other developers.")
-            response = input("Would you like to exclude setup.json from git tracking? (Y/n): ").strip().lower() or 'y'
+            response = input("Would you like to exclude .pysetup.json from git tracking? (Y/n): ").strip().lower() or 'y'
             
             # Ensure setup_prompted structure exists
             if "setup_prompted" not in self.ca_settings:
@@ -1537,7 +1537,7 @@ class ProjectSetup:
             self.ca_settings["setup_prompted"]["gitignore"] = True
             
             if response.startswith('y'):
-                # Add setup.json to .gitignore
+                # Add .pysetup.json to .gitignore
                 gitignore_path = Path(".gitignore")
                 
                 # Read existing .gitignore content or create new file
@@ -1545,23 +1545,23 @@ class ProjectSetup:
                     content = gitignore_path.read_text()
                     lines = content.splitlines()
                     
-                    # Check if setup.json is already in .gitignore
-                    if "setup.json" not in lines:
-                        # Add setup.json to .gitignore
+                    # Check if .pysetup.json is already in .gitignore
+                    if ".pysetup.json" not in lines:
+                        # Add .pysetup.json to .gitignore
                         with open(gitignore_path, "a") as f:
                             if not content.endswith("\n"):
                                 f.write("\n")
-                            f.write("# Local configuration\nsetup.json\n")
-                        print_success("Added setup.json to .gitignore")
+                            f.write("# Local configuration\n.pysetup.json\n")
+                        print_success("Added .pysetup.json to .gitignore")
                     else:
-                        print_info("setup.json is already in .gitignore")
+                        print_info(".pysetup.json is already in .gitignore")
                 else:
                     # Create new .gitignore file
                     with open(gitignore_path, "w") as f:
-                        f.write("# Local configuration\nsetup.json\n")
-                    print_success("Created .gitignore and added setup.json")
+                        f.write("# Local configuration\n.pysetup.json\n")
+                    print_success("Created .gitignore and added .pysetup.json")
             else:
-                print_info("setup.json will be tracked by git")
+                print_info(".pysetup.json will be tracked by git")
                 
             # Save the updated settings
             self.CA_CONFIG.write_text(json.dumps(self.ca_settings, indent=2))
@@ -1595,7 +1595,7 @@ class ProjectSetup:
             # Update settings with the detected paths (convert set back to list and sort alphabetically)
             self.ca_settings["python_paths"] = sorted(list(python_paths))
             
-            # Save to setup.json
+            # Save to .pysetup.json
             self.CA_CONFIG.write_text(json.dumps(self.ca_settings, indent=2))
             print_success(f"Stored Python interpreter paths in {self.CA_CONFIG}")
         else:
@@ -1622,53 +1622,71 @@ break-system-packages = true
 
         print_success("Created pip.conf with break-system-packages enabled")
             
-    def _check_and_fetch_setup_sh(self) -> bool:
-        """Check for and fetch the latest setup.sh from repository.
+    def _check_and_fetch_setup_sh(self, force_update=False) -> bool:
+        """Check for and fetch the latest pysetup.sh from repository.
         
+        Args:
+            force_update: If True, update pysetup.sh regardless of content comparison
+            
         Returns:
-            bool: True if setup.sh was updated, False otherwise
+            bool: True if pysetup.sh was updated, False otherwise
         """
-        # Get the user's preference for updating setup.sh
+        # Get the user's preference for updating pysetup.sh
         update_preference = self._get_setup_sh_update_preference()
         
         if update_preference == "no":
-            print_info("Skipping setup.sh update check based on user preference.")
+            print_info("Skipping pysetup.sh update check based on user preference.")
             return False
             
         if update_preference == "interactive":
-            response = input("\nCheck for latest setup.sh from repository? [y/N]: ").strip().lower()
+            response = input("\nCheck for latest pysetup.sh from repository? [y/N]: ").strip().lower()
             if response not in ('y', 'yes'):
                 return False
         
-        print_info("Checking for latest setup.sh...")
+        print_info("Checking for latest pysetup.sh...")
         
-        # URL for the latest setup.sh
-        setup_sh_url = "https://raw.githubusercontent.com/geekcafe/py-setup-tool/main/setup.sh"
+        # URL for the latest pysetup.sh
+        setup_sh_url = "https://raw.githubusercontent.com/geekcafe/py-setup-tool/main/pysetup.sh"
         
         try:
-            # Fetch the latest setup.sh content
-            import urllib.request
-            with urllib.request.urlopen(setup_sh_url) as response:
-                latest_setup_sh = response.read().decode('utf-8')
+            # Fetch the latest pysetup.sh content with retry logic
+            latest_setup_sh_bytes = fetch_url_with_retry(setup_sh_url)
+            latest_setup_sh = latest_setup_sh_bytes.decode('utf-8')
                 
-            # Check if setup.sh exists locally
-            setup_sh_path = Path("setup.sh")
+            # Check if pysetup.sh exists locally
+            setup_sh_path = Path("pysetup.sh")
             if setup_sh_path.exists():
-                # Compare with current setup.sh
+                # Compare with current pysetup.sh
                 with open(setup_sh_path, 'r', encoding='utf-8') as f:
                     current_setup_sh = f.read()
                     
-                if current_setup_sh == latest_setup_sh:
-                    print_info("setup.sh is already up to date.")
+                if current_setup_sh == latest_setup_sh and not force_update:
+                    print_info("pysetup.sh is already up to date.")
                     return False
+                elif force_update:
+                    print_info("Force updating pysetup.sh regardless of content comparison.")
+                else:
+                    # Debug info to help troubleshoot update issues
+                    print_info("Detected differences between local and remote pysetup.sh.")
                     
-                # Backup the current setup.sh
-                backup_path = Path("setup.sh.bak")
+                    # Calculate content length difference
+                    local_len = len(current_setup_sh)
+                    remote_len = len(latest_setup_sh)
+                    print_info(f"Local file size: {local_len} bytes, Remote file size: {remote_len} bytes")
+                    
+                    # Show first difference position
+                    for i, (local_char, remote_char) in enumerate(zip(current_setup_sh, latest_setup_sh)):
+                        if local_char != remote_char:
+                            print_info(f"First difference at position {i}: Local '{local_char}' vs Remote '{remote_char}'")
+                            break
+                    
+                # Backup the current pysetup.sh
+                backup_path = Path("pysetup.sh.bak")
                 with open(backup_path, 'w', encoding='utf-8') as f:
                     f.write(current_setup_sh)
-                print_info(f"Current setup.sh backed up to {backup_path}")
+                print_info(f"Current pysetup.sh backed up to {backup_path}")
             
-            # Write the latest setup.sh
+            # Write the latest pysetup.sh
             with open(setup_sh_path, 'w', encoding='utf-8') as f:
                 f.write(latest_setup_sh)
                 
@@ -1676,43 +1694,43 @@ break-system-packages = true
             import os
             os.chmod(setup_sh_path, 0o755)
             
-            print_success("setup.sh has been updated to the latest version.")
-            print("\n⚠️  Please restart the setup process by running:\n    ./setup.sh")
+            print_success("pysetup.sh has been updated to the latest version.")
+            print("\n⚠️  Please restart the setup process by running:\n    ./pysetup.sh")
             return True
             
         except Exception as e:
-            print_error(f"Failed to fetch or update setup.sh: {e}")
+            print_error(f"Failed to fetch or update pysetup.sh: {e}")
             return False
     
     def _get_setup_sh_update_preference(self, force_prompt=False) -> str:
-        """Get the user's preference for pulling the latest setup.sh from repository.
+        """Get the user's preference for pulling the latest pysetup.sh from repository.
         
         Args:
             force_prompt: If True, prompt for preference even if already configured.
                          If False, use existing preference without prompting.
                          
         Returns:
-            str: The setup.sh update preference ('yes', 'no', or 'interactive')
+            str: The pysetup.sh update preference ('yes', 'no', or 'interactive')
         """
-        # Check if setup.sh update preference is already configured
+        # Check if pysetup.sh update preference is already configured
         update_preference = self.ca_settings.get("setup_sh_update_preference")
         
         if update_preference and not force_prompt:
             # Use existing preference without prompting
-            print_info(f"Using stored setup.sh update preference: {update_preference}")
+            print_info(f"Using stored pysetup.sh update preference: {update_preference}")
             return update_preference
         
-        # Prompt for setup.sh update preference
-        print("\n🔄 Setup.sh Update Preference")
+        # Prompt for pysetup.sh update preference
+        print("\n🔄 pysetup.sh Update Preference")
         print("=" * 45)
-        print("Choose how to handle setup.sh updates:")
-        print("  • yes        : Always check for the latest setup.sh from repository")
-        print("  • no         : Never check for updates to setup.sh")
+        print("Choose how to handle pysetup.sh updates:")
+        print("  • yes        : Always check for the latest pysetup.sh from repository")
+        print("  • no         : Never check for updates to pysetup.sh")
         print("  • interactive: Ask each time (default)")
         print()
         
         while True:
-            response = input("Setup.sh update preference [interactive/yes/no]: ").strip().lower()
+            response = input("pysetup.sh update preference [interactive/yes/no]: ").strip().lower()
             if response in ('', 'interactive'):
                 update_preference = 'interactive'
                 break
@@ -1728,12 +1746,12 @@ break-system-packages = true
         # Save the preference
         self.ca_settings["setup_sh_update_preference"] = update_preference
         self.CA_CONFIG.write_text(json.dumps(self.ca_settings, indent=2))
-        print_success(f"Saved setup.sh update preference: {update_preference}")
+        print_success(f"Saved pysetup.sh update preference: {update_preference}")
         
         return update_preference
     
     def _get_repo_update_preference(self, force_prompt=False) -> str:
-        """Get the user's preference for pulling the latest setup.py from repository.
+        """Get the user's preference for pulling the latest pysetup.py from repository.
         
         Args:
             force_prompt: If True, prompt for preference even if already configured.
@@ -1754,8 +1772,8 @@ break-system-packages = true
         print("\n🔄 Repository Update Preference")
         print("=" * 45)
         print("Choose how to handle repository updates:")
-        print("  • yes        : Always pull the latest setup.py from repository")
-        print("  • no         : Never pull the latest setup.py")
+        print("  • yes        : Always pull the latest pysetup.py from repository")
+        print("  • no         : Never pull the latest pysetup.py")
         print("  • interactive: Ask each time (default)")
         print()
         
@@ -1994,9 +2012,49 @@ break-system-packages = true
         return sys.prefix != getattr(sys, "base_prefix", sys.prefix)
 
 
+def fetch_url_with_retry(url, max_retries=3, retry_delay=2):
+    """Fetch URL content with retry logic."""
+    import urllib.request
+    import socket
+    import time
+    
+    # Add cache-busting query parameter with current timestamp to avoid caching issues
+    cache_buster = int(time.time())
+    url_with_cache_buster = f"{url}?_cb={cache_buster}"
+    
+    for attempt in range(max_retries):
+        try:
+            # Create a request with headers that prevent caching
+            request = urllib.request.Request(
+                url_with_cache_buster,
+                headers={
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            )
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.read()
+        except (urllib.error.URLError, socket.timeout) as e:
+            if attempt < max_retries - 1:
+                print_warning(f"Network error: {e}. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            else:
+                raise Exception(f"Failed to fetch {url} after {max_retries} attempts: {e}")
+
+
 def main():
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Python project setup tool")
+    parser.add_argument("--force-update-sh", action="store_true", help="Force update pysetup.sh regardless of content comparison")
+    parser.add_argument("--ci", action="store_true", help="Run in CI mode (non-interactive)")
+    
+    args = parser.parse_args()
+    
     ps = ProjectSetup()
-    ps.setup()
+    ps.setup(force_update_sh=args.force_update_sh, ci_mode=args.ci)
 
 
 if __name__ == "__main__":
