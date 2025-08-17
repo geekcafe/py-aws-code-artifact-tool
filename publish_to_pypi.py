@@ -9,6 +9,10 @@ import os
 import shutil
 import subprocess
 import sys
+import hashlib
+import urllib.request
+import time
+import socket
 from pathlib import Path
 
 
@@ -140,151 +144,9 @@ password =
         input("Press Enter when you've edited the file...")
 
 
-def check_authentication(repository="pypi", config_file=None):
-    """Check if the user is authenticated with PyPI or TestPyPI."""
-    cmd = [sys.executable, "-m", "twine", "check", "--strict", "README.md"]
-    
-    env = os.environ.copy()
-    
-    # If using a config file, set TWINE_CONFIG_FILE
-    if config_file:
-        env["TWINE_CONFIG_FILE"] = config_file
-    
-    try:
-        subprocess.run(cmd, check=True, capture_output=True, env=env)
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
-def show_auth_instructions(repository="pypi", config_file=None):
-    """Show authentication instructions for PyPI or TestPyPI."""
-    print_header("Authentication Required")
-    
-    repo_name = "TestPyPI" if repository == "testpypi" else "PyPI"
-    repo_url = "https://test.pypi.org" if repository == "testpypi" else "https://pypi.org"
-    
-    print_error(f"You are not authenticated with {repo_name}.")
-    print_info("To authenticate, you need to:")
-    print("\n1. Create an API token:")
-    print(f"   - Go to {repo_url}/manage/account/")
-    print("   - Navigate to 'API tokens' and create a new token")
-    print("   - Select 'Entire account (all projects)' scope")
-    
-    if config_file:
-        print("\n2. Add your credentials to your local .pypirc file:")
-        print(f"   - Edit {config_file}")
-        print("   - Ensure it contains:")
-        if repository == "testpypi":
-            print("     [testpypi]")
-            print("     username = __token__")
-            print("     password = pypi-YOUR-TOKEN-HERE")
-        else:
-            print("     [pypi]")
-            print("     username = __token__")
-            print("     password = pypi-YOUR-TOKEN-HERE")
-    else:
-        print("\n2. Set up your credentials:")
-        print("   - Create a ~/.pypirc file with:")
-        print("     [distutils]")
-        print("     index-servers =")
-        print("         pypi")
-        print("         testpypi")
-        print("")
-        if repository == "testpypi":
-            print("     [testpypi]")
-            print("     repository = https://test.pypi.org/legacy/")
-            print("     username = __token__")
-            print("     password = pypi-YOUR-TOKEN-HERE")
-        else:
-            print("     [pypi]")
-            print("     username = __token__")
-            print("     password = pypi-YOUR-TOKEN-HERE")
-        
-        print("\n   - OR set environment variables:")
-        print("     export TWINE_USERNAME=__token__")
-        print("     export TWINE_PASSWORD=pypi-YOUR-TOKEN-HERE")
-    
-    print("\nReplace 'pypi-YOUR-TOKEN-HERE' with your actual token.")
-    print_info("\nFor more information, visit: https://twine.readthedocs.io/en/latest/#configuration")
-    
-    sys.exit(1)
-
-
-def get_current_version():
-    """Get the current version from pyproject.toml."""
-    try:
-        import toml
-        with open("pyproject.toml", "r") as f:
-            data = toml.load(f)
-            return data.get("project", {}).get("version")
-    except (ImportError, FileNotFoundError, KeyError):
-        return None
-
-
-def show_version_conflict_help():
-    """Show help for version conflict errors."""
-    print_header("Version Conflict Error")
-    
-    current_version = get_current_version()
-    version_info = f"Current version: {current_version}" if current_version else ""
-    
-    print_error("The package version already exists on PyPI.")
-    print_info("To resolve this issue:")
-    print("\n1. Update the version number in pyproject.toml")
-    if version_info:
-        print(f"   {version_info} → increment to a new version")
-    print("\n2. Rebuild the package:")
-    print("   python -m build")
-    print("\n3. Run this publish script again")
-    
-    print_info("\nVersion numbering follows Semantic Versioning (SemVer):")
-    print("MAJOR.MINOR.PATCH (e.g., 1.2.3)")
-    print("- MAJOR: incompatible API changes")
-    print("- MINOR: add functionality (backwards compatible)")
-    print("- PATCH: bug fixes (backwards compatible)")
-    
-    sys.exit(1)
-
-
-def handle_upload_error(error_output):
-    """Handle common upload errors with helpful messages."""
-    # Check for version conflict
-    if "File already exists" in error_output:
-        show_version_conflict_help()
-    
-    # Check for invalid classifiers
-    elif "invalid classifier" in error_output.lower():
-        print_header("Invalid Classifier Error")
-        print_error("Your package has invalid classifiers in pyproject.toml.")
-        print_info("Please check your classifiers against the list at:")
-        print("https://pypi.org/classifiers/")
-        sys.exit(1)
-    
-    # Check for missing required metadata
-    elif "required metadata" in error_output.lower():
-        print_header("Missing Metadata Error")
-        print_error("Your package is missing required metadata.")
-        print_info("Check your pyproject.toml for required fields:")
-        print("- name\n- version\n- description\n- author\n- author_email")
-        sys.exit(1)
-    
-    # Generic error
-    else:
-        print_header("Upload Error")
-        print_error("Failed to upload package.")
-        print_info("Error details:")
-        print(error_output)
-        sys.exit(1)
-
-
 def upload_to_pypi(repository, config_file=None):
     """Upload the package to PyPI or TestPyPI."""
     print_header(f"Uploading to {'TestPyPI' if repository == 'testpypi' else 'PyPI'}")
-    
-    # Check authentication before attempting upload
-    if not check_authentication(repository, config_file):
-        show_auth_instructions(repository, config_file)
     
     cmd = [sys.executable, "-m", "twine", "upload"]
     
@@ -300,13 +162,10 @@ def upload_to_pypi(repository, config_file=None):
     print_info(f"Running: {cmd_str}")
     
     try:
-        # Use shell=True to properly handle the glob pattern but capture output for error analysis
-        result = subprocess.run(cmd_str, shell=True, check=True, capture_output=True, text=True)
+        # Use shell=True to properly handle the glob pattern
+        subprocess.run(cmd_str, shell=True, check=True)
+        
         print_success("Package uploaded successfully!")
-    except subprocess.CalledProcessError as e:
-        # Handle the error with detailed feedback
-        error_output = e.stderr or e.stdout or "Unknown error occurred"
-        handle_upload_error(error_output)
         
         if repository == "testpypi":
             package_name = get_package_name()
@@ -329,14 +188,95 @@ def get_package_name():
         import toml
         with open("pyproject.toml", "r") as f:
             data = toml.load(f)
-            return data.get("project", {}).get("name", "py-aws-code-artifact-tool")
+            return data.get("project", {}).get("name", None)
     except (ImportError, FileNotFoundError):
-        return "py-aws-code-artifact-tool"
+        print_error("Failed to get package name from pyproject.toml.")
+        exit(1)
+
+
+def fetch_url_with_retry(url, max_retries=3, retry_delay=2):
+    """Fetch URL content with retry logic."""
+    for attempt in range(max_retries):
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:
+                return response.read()
+        except (urllib.error.URLError, socket.timeout) as e:
+            if attempt < max_retries - 1:
+                print_warning(f"Network error: {e}. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            else:
+                raise Exception(f"Failed to fetch {url} after {max_retries} attempts: {e}")
+
+
+def check_for_script_updates():
+    """Check if there are updates available for the scripts."""
+    # Skip update check in CI mode or if disabled via environment variable
+    if "--ci" in sys.argv or os.environ.get("PYPI_SKIP_UPDATE_CHECK", "").lower() in ("1", "true", "yes"):
+        print_info("CI mode or PYPI_SKIP_UPDATE_CHECK detected - skipping update check")
+        return
+        
+    print_header("Checking for Script Updates")
+    
+    # URLs for the scripts
+    py_url = "https://raw.githubusercontent.com/geekcafe/publish-to-pypi-scripts/refs/heads/main/publish_to_pypi.py"
+    sh_url = "https://raw.githubusercontent.com/geekcafe/publish-to-pypi-scripts/refs/heads/main/publish_to_pypi.sh"
+    
+    updates_available = False
+    
+    # Check Python script
+    if Path("publish_to_pypi.py").exists():
+        try:
+            # Get local file hash
+            with open("publish_to_pypi.py", "rb") as f:
+                local_py_hash = hashlib.md5(f.read()).hexdigest()
+            
+            # Get remote file hash with retry logic
+            remote_py_content = fetch_url_with_retry(py_url)
+            remote_py_hash = hashlib.md5(remote_py_content).hexdigest()
+            
+            if local_py_hash != remote_py_hash:
+                print_warning("A new version of publish_to_pypi.py is available.")
+                updates_available = True
+        except Exception as e:
+            print_warning(f"Could not check for Python script updates: {e}")
+    
+    # Check Shell script
+    if Path("publish_to_pypi.sh").exists():
+        try:
+            # Get local file hash
+            with open("publish_to_pypi.sh", "rb") as f:
+                local_sh_hash = hashlib.md5(f.read()).hexdigest()
+            
+            # Get remote file hash with retry logic
+            remote_sh_content = fetch_url_with_retry(sh_url)
+            remote_sh_hash = hashlib.md5(remote_sh_content).hexdigest()
+            
+            if local_sh_hash != remote_sh_hash:
+                print_warning("A new version of publish_to_pypi.sh is available.")
+                updates_available = True
+        except Exception as e:
+            print_warning(f"Could not check for Shell script updates: {e}")
+    
+    if updates_available:
+        print_info("Updates are available for one or more scripts.")
+        update = input("Do you want to update the scripts now? (y/n): ")
+        if update.lower() == 'y':
+            print_info("Please run the shell script again to update the scripts.")
+            print_info("Run: ./publish_to_pypi.sh --update")
+            sys.exit(0)
+        else:
+            print_info("Continuing with current versions...")
+    else:
+        print_success("All scripts are up to date.")
 
 
 def main():
     """Main function."""
     print_header("PyPI Publishing Script")
+    
+    # Check for script updates
+    check_for_script_updates()
     
     if not check_dependencies():
         sys.exit(1)
@@ -360,13 +300,16 @@ def main():
     
     # Check if user is authenticated (only if not using local .pypirc)
     if not pypirc_path:
-        if not check_authentication():
-            print_warning("You are not authenticated with PyPI.")
-            print_info("The upload will likely fail without proper authentication.")
+        try:
+            subprocess.run([sys.executable, "-m", "twine", "check", "--strict", "README.md"], 
+                          check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            print_warning("You might not be authenticated with PyPI.")
+            print_info("Please make sure you have a ~/.pypirc file or environment variables set.")
+            print_info("For more information, visit: https://twine.readthedocs.io/en/latest/#configuration")
             
             proceed = input("Do you want to proceed anyway? (y/n): ")
             if proceed.lower() != 'y':
-                show_auth_instructions()
                 sys.exit(0)
     
     # Prompt for repository
